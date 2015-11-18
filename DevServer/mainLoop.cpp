@@ -29,25 +29,56 @@ int main() {
 }
 
 int listenFd;
+#include <errno.h>
+#define BUFFER_SIZE 1024
 
-static void do_accept(struct ev_loop* reactor, ev_io* w, int events) {
-	if (listenFd == w->fd) {
-		struct sockaddr_in addr;
-		socklen_t addr_size = sizeof(addr);
-		int conn = accept(w->fd, (struct sockaddr*) &addr, &addr_size);
-		std::string r = common::address_to_string(&addr);
-		fprintf(stderr, "accept %s\n", r.c_str());
-		//close(conn);
-		char buf[1024];
-		int ret = recv(conn, buf, 1024, 0);
-		cout << "ret is " << ret << endl;
-		fprintf(stderr, "recv %s\n", buf);
+void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents){
+	char buffer[BUFFER_SIZE];
+	ssize_t read;
+
+	if(EV_ERROR & revents) {
+		printf("error event in read");
+		return;
 	}
-	else{
-		char buf[1024];
-		int ret = recv(w->fd, buf, 1024, 0);
-		fprintf(stderr, "accept %s\n", buf);
+	cout << "read something" << endl;
+	read = recv(watcher->fd, buffer, BUFFER_SIZE, 0);
+	if(read < 0){
+		printf("read error,errno:%d\n", errno);
+		return;
 	}
+	if(read == 0) {
+		printf("someone disconnected.errno:%d\n", errno);
+		ev_io_stop(loop,watcher);
+		free(watcher);
+		return;
+	} else {
+		printf("get the message:%s\n",buffer);
+	}
+	cout << buffer << endl;
+	send(watcher->fd, buffer, read, 0);
+	bzero(buffer, read);
+}
+
+static void do_accept(struct ev_loop* loop, ev_io* watcher, int revents) {
+	struct sockaddr_in client_addr;
+		socklen_t client_len = sizeof(client_addr);
+		int client_sd;
+		cout << "socket accepted" << endl;
+		struct ev_io *w_client = (struct ev_io*) malloc (sizeof(struct ev_io));
+		if(EV_ERROR & revents){
+			printf("error event in accept\n");
+			return;
+		}
+
+		client_sd = accept(watcher->fd, (struct sockaddr *)&client_addr, &client_len);
+		if (client_sd < 0) {
+			printf("accept error\n");
+			return;
+		}
+		printf("someone connected.\n");
+
+		ev_io_init(w_client, read_cb, client_sd, EV_READ);
+		ev_io_start(loop, w_client);
 }
 
 int main_loop_init() {
